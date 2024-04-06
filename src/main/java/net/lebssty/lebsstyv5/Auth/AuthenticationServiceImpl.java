@@ -43,6 +43,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
                 .token(jwtToken)
                 .refreshToken(refreshToken)
                 .build();
+
     }
 
     public AuthenticationResponse authenticate(AuthenticationRequest request) {

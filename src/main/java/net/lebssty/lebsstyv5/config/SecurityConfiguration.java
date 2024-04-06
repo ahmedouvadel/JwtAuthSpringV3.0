@@ -13,17 +13,24 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.authentication.logout.LogoutHandler;
 
 import static org.springframework.http.HttpMethod.*;
 import static org.springframework.http.HttpMethod.DELETE;
-import static org.springframework.security.config.http.SessionCreationPolicy.STATELESS;
+
 
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
 @EnableMethodSecurity
 public class SecurityConfiguration {
+
+    private static final String[] WHITE_LIST_URL = {
+            "/authenticate",
+            "api/**",
+            "/sign-up",
+            "/order/**"
+
+            };
     private final JwtAuthenticationFilter jwtAuthFilter;
 
     @Bean
@@ -32,9 +39,15 @@ public class SecurityConfiguration {
                 // Apply CSRF configuration with lambda style
                 .csrf(CsrfConfigurer::disable)
                 // Configure request authorization
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/authenticate", "/sign-up", "/order/**").permitAll()
-                        .requestMatchers("/api/**").authenticated()
+                .authorizeHttpRequests(req ->
+                        req.requestMatchers(WHITE_LIST_URL)
+                                .permitAll()
+                                .requestMatchers(GET, "/api/**").authenticated()
+                                .requestMatchers(POST, "/api/**").authenticated()
+                                .requestMatchers(PUT, "/api/**").authenticated()
+                                .requestMatchers(DELETE, "/api/**").authenticated()
+                                .anyRequest()
+                                .authenticated()
                 )
                 // Configure session management
                 .sessionManagement(session -> session
