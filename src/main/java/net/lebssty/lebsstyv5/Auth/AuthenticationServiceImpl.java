@@ -10,9 +10,12 @@ import net.lebssty.lebsstyv5.user.Entity.Token;
 import net.lebssty.lebsstyv5.user.Entity.User;
 import net.lebssty.lebsstyv5.user.Enum.TokenType;
 import net.lebssty.lebsstyv5.user.Repository.UserRepository;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +30,9 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
 
+    public static final String TOKEN_PREFIX = "Bearer ";
+    public static final String HEADER_STRING = "Authorization";
+
     public AuthenticationResponse register(RegisterRequest request) {
         var user = User.builder()
                 .firstname(request.getFirstname())
@@ -38,7 +44,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         var savedUser = repository.save(user);
         var jwtToken = jwtService.generateToken(user);
         var refreshToken = jwtService.generateRefreshToken(user);
-        saveUserToken(savedUser, jwtToken);
+        saveUserToken(savedUser, jwtToken, refreshToken);
         return AuthenticationResponse.builder()
                 .token(jwtToken)
                 .refreshToken(refreshToken)
@@ -46,26 +52,49 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
     }
 
-    public AuthenticationResponse authenticate(AuthenticationRequest request) {
+
+
+    public AuthenticationResponse authenticate(AuthenticationRequest request, HttpServletResponse response) throws IOException, JSONException {
+        // Authenticate the user with provided credentials
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
                         request.getEmail(),
                         request.getPassword()
                 )
         );
+
+        // Retrieve the user from the repository or throw an exception if not found
         var user = repository.findByEmail(request.getEmail())
-                .orElseThrow();
-        var jwtToken = jwtService.generateToken(user);
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + request.getEmail()));
+
+        // Generate new JWT and refresh tokens for the user
+        var token = jwtService.generateToken(user);
         var refreshToken = jwtService.generateRefreshToken(user);
+
+        // Optionally, revoke all previous tokens and save the new ones
         revokeAllUserTokens(user);
-        saveUserToken(user, jwtToken);
-        return AuthenticationResponse.builder()
-                .token(jwtToken)
-                .refreshToken(refreshToken)
-                .build();
+        saveUserToken(user, token, refreshToken); // Save both JWT and refresh token
+
+        // Set headers in the response
+        response.addHeader("Access-Control-Expose-Headers", "Authorization");
+        response.addHeader("Access-Control-Allow-Headers", "Authorization, X-PINGOTHER, Origin, X-Requested-With, Content-Type, Accept, X-Custom-header");
+        response.addHeader(HEADER_STRING, TOKEN_PREFIX + token);
+
+        // Build the response including user details and tokens
+        JSONObject responseBody = new JSONObject()
+        .put("userId", user.getId())
+        .put("role", user.getRole())
+        .put("token", token)
+        .put("refreshToken", refreshToken);
+
+        // Write response JSON to the response body
+        response.getWriter().write(responseBody.toString());
+
+        // Return null since we are handling the response manually
+        return null;
     }
 
-    private void saveUserToken(User user, String jwtToken) {
+    private void saveUserToken(User user, String jwtToken, String refreshToken) {
         var token = Token.builder()
                 .user(user)
                 .token(jwtToken)
@@ -105,7 +134,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
             if (jwtService.isTokenValid(refreshToken, user)) {
                 var accessToken = jwtService.generateToken(user);
                 revokeAllUserTokens(user);
-                saveUserToken(user, accessToken);
+                saveUserToken(user, accessToken, refreshToken);
                 var authResponse = AuthenticationResponse.builder()
                         .token(accessToken)
                         .refreshToken(refreshToken)
